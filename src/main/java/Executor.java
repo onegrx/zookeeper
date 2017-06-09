@@ -7,6 +7,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.List;
+import java.util.Scanner;
+import java.util.stream.IntStream;
 
 /**
  * Created by onegrx on 07.06.17.
@@ -19,35 +22,31 @@ public class Executor implements Watcher, Runnable, DataMonitor.DataMonitorListe
 
     ZooKeeper zk;
 
-    String filename;
-
     String exec[];
 
     Process child;
 
     public static void main(String[] args) {
-        if (args.length < 4) {
+        if (args.length < 2) {
             System.err
-                    .println("USAGE: Executor hostPort znode filename program [args ...]");
+                    .println("USAGE: Executor hostPort program [args ...]");
             System.exit(2);
         }
         String hostPort = args[0];
-        String znode = args[1];
-        String filename = args[2];
-        String exec[] = new String[args.length - 3];
-        System.arraycopy(args, 3, exec, 0, exec.length);
+        String znode = "/znode_testowy";
+        String exec[] = new String[args.length - 1];
+        System.arraycopy(args, 1, exec, 0, exec.length);
         try {
-            new Executor(hostPort, znode, filename, exec).run();
+            new Executor(hostPort, znode, exec).run();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public Executor(String hostPort, String znode, String filename,
-                    String exec[]) throws KeeperException, IOException {
-        this.filename = filename;
+    public Executor(String hostPort, String znode, String exec[]) throws KeeperException, IOException {
+        this.znode = znode;
         this.exec = exec;
-        zk = new ZooKeeper(hostPort, 3000, this);
+        zk = new ZooKeeper(hostPort, 5000, this);
         dm = new DataMonitor(zk, znode, null, this);
     }
 
@@ -74,14 +73,33 @@ public class Executor implements Watcher, Runnable, DataMonitor.DataMonitorListe
         }
     }
 
-    public void run() {
-        try {
-            synchronized (this) {
-                while (!dm.dead) {
-                    wait();
-                }
+    private void show(String child, String path, int i) throws KeeperException, InterruptedException {
+        IntStream.rangeClosed(0, i).forEach(k -> System.out.print(" "));
+        List<String> children = zk.getChildren(path, dm);
+        System.out.println(child + "ELO");
+        children.forEach(c -> {
+            try {
+                show(c, path + "/" + c, i + 1);
+            } catch (KeeperException | InterruptedException e) {
+                e.printStackTrace();
             }
-        } catch (InterruptedException e) {
+        });
+
+    }
+
+    public void run() {
+        Scanner scanner = new Scanner(System.in);
+        while (scanner.hasNextLine()) {
+            String line = scanner.nextLine();
+            switch (line) {
+                case "tree":
+                    try {
+                        show(znode, znode, 0);
+                    } catch (KeeperException | InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+            }
         }
     }
 
@@ -114,18 +132,12 @@ public class Executor implements Watcher, Runnable, DataMonitor.DataMonitorListe
                 }
             }
             try {
-                FileOutputStream fos = new FileOutputStream(filename);
-                fos.write(data);
-                fos.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            try {
-                System.out.println("Starting child");
+                zk.getChildren(znode, this);
                 child = Runtime.getRuntime().exec(exec);
+                System.out.println("Starting child");
                 new StreamWriter(child.getInputStream(), System.out);
                 new StreamWriter(child.getErrorStream(), System.err);
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | KeeperException e) {
                 e.printStackTrace();
             }
         }

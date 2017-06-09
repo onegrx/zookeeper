@@ -7,6 +7,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Created by onegrx on 07.06.17.
@@ -18,8 +19,6 @@ public class DataMonitor implements Watcher, StatCallback {
     String znode;
 
     Watcher chainedWatcher;
-
-    boolean dead;
 
     DataMonitorListener listener;
 
@@ -47,8 +46,7 @@ public class DataMonitor implements Watcher, StatCallback {
         this.chainedWatcher = chainedWatcher;
         this.listener = listener;
 
-        // Get things started by checking if the node exists. We are going
-        // to be completely event driven
+
         zk.exists(znode, true, this, null);
     }
 
@@ -63,7 +61,6 @@ public class DataMonitor implements Watcher, StatCallback {
                 break;
             case Code.SessionExpired:
             case Code.NoAuth:
-                dead = true;
                 listener.closing(rc);
                 return;
             default:
@@ -98,26 +95,41 @@ public class DataMonitor implements Watcher, StatCallback {
             // connection has changed
             switch (event.getState()) {
                 case SyncConnected:
-                    // In this particular example we don't need to do anything
-                    // here - watches are automatically re-registered with
-                    // server and any watches triggered while the client was
-                    // disconnected will be delivered (in order of course)
                     break;
                 case Expired:
                     // It's all over
-                    dead = true;
                     listener.closing(KeeperException.Code.SessionExpired);
                     break;
             }
+        } else if(event.getType() == Event.EventType.NodeChildrenChanged) {
+            try {
+                System.out.println("CHILDREN: " + countDescendants());
+            } catch (KeeperException | InterruptedException e) {
+                e.printStackTrace();
+            }
         } else {
             if (path != null && path.equals(znode)) {
-                // Something has changed on the node, let's find out
                 zk.exists(znode, true, this, null);
             }
         }
         if (chainedWatcher != null) {
             chainedWatcher.process(event);
         }
+    }
+
+    private long countDescendants() throws KeeperException, InterruptedException {
+        List<String> children = zk.getChildren(znode, this);
+        return children.size() + children.stream().mapToLong(child -> countDescendants(znode+"/"+child)).sum();
+    }
+
+    private long countDescendants(String path) {
+        try {
+            List<String> children = zk.getChildren(path, this);
+            return children.size() + children.stream().mapToLong(c -> countDescendants(path+"/"+c)).sum();
+        } catch (KeeperException | InterruptedException e) {
+            e.printStackTrace();
+        }
+        return 0;
     }
 
 
